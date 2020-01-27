@@ -7,6 +7,7 @@
 #![feature(const_raw_ptr_deref)]
 #![feature(slice_from_raw_parts)]
 #![feature(const_slice_from_raw_parts)]
+#![feature(const_loop)]
 
 use core::{mem::MaybeUninit, ptr};
 
@@ -22,6 +23,28 @@ pub struct ConstVec<T, const N: usize> {
     /// This MaybeUninit is const constructable
     data: MaybeUninit<[T; N]>,
     len: usize,
+}
+
+impl<T: Copy, const N: usize> Copy for ConstVec<T, { N }> {}
+
+// TODO: Require T: Clone
+impl<T: Clone, const N: usize> Clone for ConstVec<T, { N }> {
+    fn clone(&self) -> Self {
+        let mut new = Self::new();
+        let new_uninit_slice = unsafe { new.as_uninit_slice_mut() };
+
+        let slice = self.as_slice();
+
+        let mut idx = 0;
+
+        // Is essentially `clone_from_slice`
+        while idx < slice.len() {
+            new_uninit_slice[idx] = MaybeUninit::new(slice[idx].clone());
+            idx += 1;
+        }
+
+        new
+    }
 }
 
 impl<T, const N: usize> ConstVec<T, { N }> {
@@ -86,6 +109,14 @@ impl<T, const N: usize> ConstVec<T, { N }> {
 
     pub const unsafe fn set_len(&mut self, new_len: usize) {
         self.len = new_len;
+    }
+
+    pub const fn as_slice(&self) -> &[T] {
+        let len = self.len();
+
+        let ptr = &self.data as *const _ as *const T;
+
+        unsafe { &*ptr::slice_from_raw_parts(ptr, len) }
     }
 }
 
@@ -176,6 +207,8 @@ mod tests {
         }
 
         assert!(b.is_empty());
+
+        let copy = b;
 
         match b.pop() {
             Some(_) => panic!("The vector should be empty!"),
